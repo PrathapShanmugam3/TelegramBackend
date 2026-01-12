@@ -71,10 +71,10 @@ app.post('/secure-login', async (req, res) => {
                 return res.json({ blocked: true, reason: "Account is blocked." });
             }
 
-            // 3. Strict Check: Must match registered Device ID and IP
-            // Note: Blocking on IP change is very strict (WiFi vs Mobile Data will block user)
-            if (user.device_id !== device_id || user.ip_address !== ip_address) {
-                console.log(`Mismatch detected! Registered: [${user.device_id}, ${user.ip_address}] vs New: [${device_id}, ${ip_address}]`);
+            // 3. Strict Check: Must match registered Device ID
+            // Note: IP check removed as per request to avoid blocking on network changes
+            if (user.device_id !== device_id) {
+                console.log(`Mismatch detected! Registered: [${user.device_id}] vs New: [${device_id}]`);
 
                 // Block the user immediately
                 await pool.execute(
@@ -84,8 +84,16 @@ app.post('/secure-login', async (req, res) => {
 
                 return res.json({
                     blocked: true,
-                    reason: "Security Alert: Login attempt from new Device or IP. Account Blocked."
+                    reason: "Security Alert: Login attempt from new Device. Account Blocked."
                 });
+            }
+
+            // Update IP address for logging purposes (optional, but good for tracking)
+            if (user.ip_address !== ip_address) {
+                await pool.execute(
+                    'UPDATE users SET ip_address = ? WHERE telegram_id = ?',
+                    [ip_address, telegramIdStr]
+                );
             }
 
             // All good, welcome back
