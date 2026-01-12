@@ -1,16 +1,18 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
-const { PrismaClient } = require('@prisma/client');
+const mysql = require('mysql2/promise');
 
-const prisma = new PrismaClient();
 const app = express();
 
 app.use(cors());
 app.use(express.json());
 
+// Create a connection pool
+const pool = mysql.createPool(process.env.DATABASE_URL);
+
 app.get('/', (req, res) => {
-    res.send('Triple-Lock Security Backend is running');
+    res.send('Triple-Lock Security Backend is running (MySQL)');
 });
 
 app.post('/secure-login', async (req, res) => {
@@ -23,44 +25,31 @@ app.post('/secure-login', async (req, res) => {
 
         // Get real IP from Vercel/Proxy headers
         const ipHeader = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '';
-        // Normalize IP (handle array or string)
         const ip_address = Array.isArray(ipHeader) ? ipHeader[0] : ipHeader.split(',')[0].trim();
 
         console.log(`Login attempt: TG=${telegram_id}, Device=${device_id}, IP=${ip_address}`);
 
         // Check if Device ID or IP is already used by someone else
-        const conflictingUser = await prisma.user.findFirst({
-            where: {
-                OR: [
-                    { device_id: device_id },
-                    { ip_address: ip_address }
-                ],
-                NOT: {
-                    telegram_id: BigInt(telegram_id)
-                }
-            }
-        });
+        const [conflicts] = await pool.execute(
+            `SELECT telegram_id FROM users 
+       WHERE (device_id = ? OR ip_address = ?) 
+       AND telegram_id != ?`,
+            [device_id, ip_address, telegram_id]
+        );
 
-        if (conflictingUser) {
-            console.log('Blocked user due to conflict:', conflictingUser);
+        if (conflicts.length > 0) {
+            console.log('Blocked user due to conflict:', conflicts[0]);
             return res.json({ blocked: true, reason: "Multi-account detected via Device ID or IP" });
         }
 
         // If safe, save/update user info
-        await prisma.user.upsert({
-            where: { telegram_id: BigInt(telegram_id) },
-            update: {
-                device_id: device_id,
-                ip_address: ip_address,
-                name: name
-            },
-            create: {
-                telegram_id: BigInt(telegram_id),
-                device_id: device_id,
-                ip_address: ip_address,
-                name: name
-            }
-        });
+        // MySQL ON DUPLICATE KEY UPDATE
+        await pool.execute(
+            `INSERT INTO users (telegram_id, device_id, ip_address, name) 
+       VALUES (?, ?, ?, ?) 
+       ON DUPLICATE KEY UPDATE device_id = ?, ip_address = ?, name = ?`,
+            [telegram_id, device_id, ip_address, name, device_id, ip_address, name]
+        );
 
         res.json({ blocked: false });
 
@@ -70,10 +59,27 @@ app.post('/secure-login', async (req, res) => {
     }
 });
 
-// For Vercel, we export the app
+// Endpoint to initialize the database table (run once)
+app.get('/init-db', async (req, res) => {
+    try {
+        await pool.execute(`
+            CREATE TABLE IF NOT EXISTS users (
+                telegram_id BIGINT PRIMARY KEY,
+                device_id VARCHAR(255),
+                ip_address VARCHAR(255),
+                name VARCHAR(255),
+                is_blocked BOOLEAN DEFAULT FALSE
+            )
+        `);
+        res.send('Database initialized successfully');
+    } catch (error) {
+        console.error('Init DB error:', error);
+        res.status(500).send('Error initializing database');
+    }
+});
+
 module.exports = app;
 
-// For local dev
 if (require.main === module) {
     const PORT = process.env.PORT || 3000;
     app.listen(PORT, () => {
