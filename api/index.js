@@ -13,7 +13,10 @@ app.use(cors({
 app.use(express.json());
 
 // Create a connection pool
-const pool = mysql.createPool(process.env.DATABASE_URL);
+if (!process.env.DATABASE_URL) {
+    console.error('DATABASE_URL environment variable is missing!');
+}
+const pool = mysql.createPool(process.env.DATABASE_URL || '');
 
 app.get('/', (req, res) => {
     res.send('Triple-Lock Security Backend is running (MySQL)');
