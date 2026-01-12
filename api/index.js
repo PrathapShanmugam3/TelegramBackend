@@ -5,7 +5,11 @@ const mysql = require('mysql2/promise');
 
 const app = express();
 
-app.use(cors());
+app.use(cors({
+    origin: '*', // Allow all origins for now (can be restricted to Vercel app domain later)
+    methods: ['GET', 'POST', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization']
+}));
 app.use(express.json());
 
 // Create a connection pool
