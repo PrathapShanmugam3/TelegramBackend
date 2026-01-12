@@ -22,13 +22,11 @@ app.get('/', (req, res) => {
     res.send('Triple-Lock Security Backend is running (MySQL)');
 });
 
-// Endpoint to initialize the database table (Reset for new schema)
+// Endpoint to initialize the database table
 app.get('/init-db', async (req, res) => {
     try {
-        // Warning: This resets the table!
-        await pool.execute('DROP TABLE IF EXISTS users');
         await pool.execute(`
-            CREATE TABLE users (
+            CREATE TABLE IF NOT EXISTS users (
                 id INT AUTO_INCREMENT PRIMARY KEY,
                 telegram_id VARCHAR(255) UNIQUE NOT NULL,
                 device_id VARCHAR(255),
@@ -37,7 +35,7 @@ app.get('/init-db', async (req, res) => {
                 is_blocked BOOLEAN DEFAULT FALSE
             )
         `);
-        res.send('Database reset and initialized with new schema (id PK, telegram_id UNIQUE VARCHAR)');
+        res.send('Database initialized successfully (Schema: id PK, telegram_id UNIQUE VARCHAR)');
     } catch (error) {
         console.error('Init DB error:', error);
         res.status(500).send('Error initializing database');
