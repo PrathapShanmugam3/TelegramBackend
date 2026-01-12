@@ -22,66 +22,91 @@ app.get('/', (req, res) => {
     res.send('Triple-Lock Security Backend is running (MySQL)');
 });
 
-app.post('/secure-login', async (req, res) => {
-    try {
-        const { telegram_id, device_id, name } = req.body;
-
-        if (!telegram_id || !device_id) {
-            return res.status(400).json({ error: 'Missing telegram_id or device_id' });
-        }
-
-        // Get real IP from Vercel/Proxy headers
-        const ipHeader = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '';
-        const ip_address = Array.isArray(ipHeader) ? ipHeader[0] : ipHeader.split(',')[0].trim();
-
-        console.log(`Login attempt: TG=${telegram_id}, Device=${device_id}, IP=${ip_address}`);
-
-        // Check if Device ID or IP is already used by someone else
-        const [conflicts] = await pool.execute(
-            `SELECT telegram_id FROM users 
-       WHERE (device_id = ? OR ip_address = ?) 
-       AND telegram_id != ?`,
-            [device_id, ip_address, telegram_id]
-        );
-
-        if (conflicts.length > 0) {
-            console.log('Blocked user due to conflict:', conflicts[0]);
-            return res.json({ blocked: true, reason: "Multi-account detected via Device ID or IP" });
-        }
-
-        // If safe, save/update user info
-        // MySQL ON DUPLICATE KEY UPDATE
-        await pool.execute(
-            `INSERT INTO users (telegram_id, device_id, ip_address, name) 
-       VALUES (?, ?, ?, ?) 
-       ON DUPLICATE KEY UPDATE device_id = ?, ip_address = ?, name = ?`,
-            [telegram_id, device_id, ip_address, name, device_id, ip_address, name]
-        );
-
-        res.json({ blocked: false });
-
-    } catch (error) {
-        console.error('Error in secure-login:', error);
-        res.status(500).json({ error: 'Internal Server Error' });
-    }
-});
-
-// Endpoint to initialize the database table (run once)
+// Endpoint to initialize the database table (Reset for new schema)
 app.get('/init-db', async (req, res) => {
     try {
+        // Warning: This resets the table!
+        await pool.execute('DROP TABLE IF EXISTS users');
         await pool.execute(`
-            CREATE TABLE IF NOT EXISTS users (
-                telegram_id BIGINT PRIMARY KEY,
+            CREATE TABLE users (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                telegram_id VARCHAR(255) UNIQUE NOT NULL,
                 device_id VARCHAR(255),
                 ip_address VARCHAR(255),
                 name VARCHAR(255),
                 is_blocked BOOLEAN DEFAULT FALSE
             )
         `);
-        res.send('Database initialized successfully');
+        res.send('Database reset and initialized with new schema (id PK, telegram_id UNIQUE VARCHAR)');
     } catch (error) {
         console.error('Init DB error:', error);
         res.status(500).send('Error initializing database');
+    }
+});
+
+app.post('/secure-login', async (req, res) => {
+    try {
+        const { telegram_id, device_id, name } = req.body;
+        const telegramIdStr = String(telegram_id); // Ensure string for VARCHAR
+
+        if (!telegram_id || !device_id) {
+            return res.status(400).json({ error: 'Missing telegram_id or device_id' });
+        }
+
+        // Get real IP
+        const ipHeader = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '';
+        const ip_address = Array.isArray(ipHeader) ? ipHeader[0] : ipHeader.split(',')[0].trim();
+
+        console.log(`Login attempt: TG=${telegramIdStr}, Device=${device_id}, IP=${ip_address}`);
+
+        // 1. Check if user exists
+        const [users] = await pool.execute(
+            'SELECT * FROM users WHERE telegram_id = ?',
+            [telegramIdStr]
+        );
+
+        if (users.length > 0) {
+            const user = users[0];
+
+            // 2. Check if already blocked
+            if (user.is_blocked) {
+                return res.json({ blocked: true, reason: "Account is blocked." });
+            }
+
+            // 3. Strict Check: Must match registered Device ID and IP
+            // Note: Blocking on IP change is very strict (WiFi vs Mobile Data will block user)
+            if (user.device_id !== device_id || user.ip_address !== ip_address) {
+                console.log(`Mismatch detected! Registered: [${user.device_id}, ${user.ip_address}] vs New: [${device_id}, ${ip_address}]`);
+
+                // Block the user immediately
+                await pool.execute(
+                    'UPDATE users SET is_blocked = TRUE WHERE telegram_id = ?',
+                    [telegramIdStr]
+                );
+
+                return res.json({
+                    blocked: true,
+                    reason: "Security Alert: Login attempt from new Device or IP. Account Blocked."
+                });
+            }
+
+            // All good, welcome back
+            return res.json({ blocked: false });
+
+        } else {
+            // 4. New User: Register and Lock to this Device/IP
+            await pool.execute(
+                `INSERT INTO users (telegram_id, device_id, ip_address, name) 
+                 VALUES (?, ?, ?, ?)`,
+                [telegramIdStr, device_id, ip_address, name]
+            );
+
+            return res.json({ blocked: false });
+        }
+
+    } catch (error) {
+        console.error('Error in secure-login:', error);
+        res.status(500).json({ error: 'Internal Server Error' });
     }
 });
 
