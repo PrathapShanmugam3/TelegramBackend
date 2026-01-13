@@ -22,9 +22,10 @@ app.get('/', (req, res) => {
     res.send('Triple-Lock Security Backend is running (MySQL)');
 });
 
-// Endpoint to initialize the database table
+// Endpoint to initialize or update the database table
 app.get('/init-db', async (req, res) => {
     try {
+        // 1. Create Table if it doesn't exist
         await pool.execute(`
             CREATE TABLE IF NOT EXISTS users (
                 id INT AUTO_INCREMENT,
@@ -42,10 +43,28 @@ app.get('/init-db', async (req, res) => {
                 PRIMARY KEY (id)
             )
         `);
-        res.send('Database initialized successfully (Schema: id PK, telegram_id UNIQUE VARCHAR)');
+
+        // 2. Run Alter commands to ensure columns exist (for existing tables)
+        // This acts as an auto-migration for existing tables
+        await pool.execute(`
+            ALTER TABLE users 
+            ADD COLUMN IF NOT EXISTS username VARCHAR(255),
+            ADD COLUMN IF NOT EXISTS first_name VARCHAR(255),
+            ADD COLUMN IF NOT EXISTS last_name VARCHAR(255),
+            ADD COLUMN IF NOT EXISTS photo_url TEXT,
+            ADD COLUMN IF NOT EXISTS auth_date BIGINT,
+            ADD COLUMN IF NOT EXISTS role VARCHAR(50) DEFAULT 'user'
+        `);
+
+        res.send('Database initialized & updated successfully (Schema: id PK, telegram_id UNIQUE, + all user fields)');
     } catch (error) {
-        console.error('Init DB error:', error);
-        res.status(500).send('Error initializing database');
+        // Ignore "Duplicate column" errors if they happen during ALTER
+        if (error.code === 'ER_DUP_FIELDNAME') {
+            res.send('Database initialized successfully (Columns already existed).');
+        } else {
+            console.error('Init DB error:', error);
+            res.status(500).send('Error initializing database: ' + error.message);
+        }
     }
 });
 
