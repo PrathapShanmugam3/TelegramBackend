@@ -15,8 +15,11 @@ async function checkTelegramMembership(userId, channelId) {
         }
 
         const url = `https://api.telegram.org/bot${token}/getChatMember?chat_id=${targetId}&user_id=${userId}`;
+        console.log(`Checking Membership URL: ${url.replace(token, 'HIDDEN_TOKEN')}`);
+
         const response = await fetch(url);
         const data = await response.json();
+        console.log(`Telegram API Response for ${targetId}:`, JSON.stringify(data));
 
         if (!data.ok) {
             console.error(`Telegram API Error for ${channelId}:`, data.description);
@@ -61,7 +64,8 @@ exports.addChannel = async (req, res) => {
 
     const token = process.env.BOT_TOKEN;
     let channel_name = 'Unknown Channel';
-    // let channel_url = '#'; // Already declared above
+    // Use provided URL or default to #
+    if (!channel_url) channel_url = '#';
 
     try {
         // 1. Fetch Channel Details from Telegram
@@ -119,7 +123,10 @@ exports.verifyChannels = async (req, res) => {
         const missing_channels = [];
 
         for (const channel of channels) {
+            console.log(`Verifying User ${telegram_id} in Channel ${channel.channel_id}...`);
             const isMember = await checkTelegramMembership(telegram_id, channel.channel_id);
+            console.log(`Result for ${channel.channel_id}: ${isMember}`);
+
             if (!isMember) {
                 missing_channels.push(channel);
             }
