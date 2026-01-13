@@ -51,6 +51,23 @@ app.post('/secure-login', async (req, res) => {
             return res.status(400).json({ error: 'Missing telegram_id or device_id' });
         }
 
+        // 0. Device Ownership Check: Ensure this device isn't owned by someone else
+        const [deviceOwners] = await pool.execute(
+            'SELECT telegram_id, name FROM users WHERE device_id = ? ORDER BY id ASC LIMIT 1',
+            [device_id]
+        );
+
+        if (deviceOwners.length > 0) {
+            const owner = deviceOwners[0];
+            if (owner.telegram_id !== telegramIdStr) {
+                console.log(`Device ${device_id} is owned by ${owner.name} (${owner.telegram_id}). Login denied for ${telegramIdStr}.`);
+                return res.json({
+                    blocked: true,
+                    reason: `This device is already linked to account "${owner.name}". Multiple accounts per device are not allowed.`
+                });
+            }
+        }
+
         // Get real IP
         const ipHeader = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '';
         const ip_address = Array.isArray(ipHeader) ? ipHeader[0] : ipHeader.split(',')[0].trim();
