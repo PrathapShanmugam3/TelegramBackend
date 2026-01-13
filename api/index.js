@@ -129,6 +129,60 @@ app.post('/secure-login', async (req, res) => {
     }
 });
 
+// --- Admin Endpoints ---
+
+// Helper to check if requester is admin
+const checkAdmin = async (req, res, next) => {
+    const adminId = req.headers['x-admin-id'];
+    if (!adminId) return res.status(401).json({ error: 'Unauthorized: Missing Admin ID' });
+
+    try {
+        const [admins] = await pool.execute('SELECT role FROM users WHERE telegram_id = ?', [adminId]);
+        if (admins.length === 0 || admins[0].role !== 'admin') {
+            return res.status(403).json({ error: 'Forbidden: You are not an admin' });
+        }
+        next();
+    } catch (error) {
+        res.status(500).json({ error: 'Auth Check Failed' });
+    }
+};
+
+// Get All Users
+app.get('/admin/users', checkAdmin, async (req, res) => {
+    try {
+        const [users] = await pool.execute('SELECT * FROM users ORDER BY id DESC');
+        res.json(users);
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to fetch users' });
+    }
+});
+
+// Update User
+app.put('/admin/users/:id', checkAdmin, async (req, res) => {
+    const { id } = req.params;
+    const { role, is_blocked, name, device_id } = req.body;
+    try {
+        await pool.execute(
+            'UPDATE users SET role = ?, is_blocked = ?, name = ?, device_id = ? WHERE id = ?',
+            [role, is_blocked, name, device_id, id]
+        );
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to update user' });
+    }
+});
+
+// Delete User
+app.delete('/admin/users/:id', checkAdmin, async (req, res) => {
+    const { id } = req.params;
+    try {
+        await pool.execute('DELETE FROM users WHERE id = ?', [id]);
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to delete user' });
+    }
+});
+
 module.exports = app;
 
 if (require.main === module) {
