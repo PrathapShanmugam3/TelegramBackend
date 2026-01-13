@@ -9,5 +9,6 @@ router.post('/verify-channels', channelController.verifyChannels);
 router.get('/admin/channels', checkAdmin, channelController.getChannels);
 router.post('/admin/channels', checkAdmin, channelController.addChannel);
 router.delete('/admin/channels/:id', checkAdmin, channelController.deleteChannel);
+router.post('/admin/resolve-channel', checkAdmin, channelController.resolveChannelId);
 
 module.exports = router;

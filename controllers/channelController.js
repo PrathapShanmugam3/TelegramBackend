@@ -91,3 +91,23 @@ exports.verifyChannels = async (req, res) => {
         res.status(500).json({ error: 'Internal Server Error' });
     }
 };
+
+exports.resolveChannelId = async (req, res) => {
+    const { username } = req.body;
+    if (!username) return res.status(400).json({ error: 'Missing username' });
+
+    const token = process.env.BOT_TOKEN;
+    try {
+        const url = `https://api.telegram.org/bot${token}/getChat?chat_id=${username}`;
+        const response = await fetch(url);
+        const data = await response.json();
+
+        if (!data.ok) {
+            return res.status(400).json({ error: 'Could not find channel. Ensure the bot is an admin or the username is correct.' });
+        }
+
+        res.json({ id: data.result.id, title: data.result.title });
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to resolve channel ID' });
+    }
+};
