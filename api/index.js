@@ -1,10 +1,10 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
-const pool = require('./config/db'); // Import pool for CORS check
-const userRoutes = require('./routes/userRoutes');
-const channelRoutes = require('./routes/channelRoutes');
-const originRoutes = require('./routes/originRoutes');
+const pool = require('../config/db'); // Import pool for CORS check
+const userRoutes = require('../routes/userRoutes');
+const channelRoutes = require('../routes/channelRoutes');
+const originRoutes = require('../routes/originRoutes');
 
 const app = express();
 
