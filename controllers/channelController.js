@@ -8,7 +8,13 @@ async function checkTelegramMembership(userId, channelId) {
         return false;
     }
     try {
-        const url = `https://api.telegram.org/bot${token}/getChatMember?chat_id=${channelId}&user_id=${userId}`;
+        // Auto-fix private channel IDs (missing -100 prefix)
+        let targetId = channelId;
+        if (!String(channelId).startsWith('-') && !String(channelId).startsWith('@')) {
+            targetId = '-100' + channelId;
+        }
+
+        const url = `https://api.telegram.org/bot${token}/getChatMember?chat_id=${targetId}&user_id=${userId}`;
         const response = await fetch(url);
         const data = await response.json();
 
@@ -18,7 +24,11 @@ async function checkTelegramMembership(userId, channelId) {
         }
 
         const status = data.result.status;
-        return ['creator', 'administrator', 'member', 'restricted'].includes(status);
+        // User requested logic:
+        if (['left', 'kicked'].includes(status)) {
+            return false;
+        }
+        return true;
     } catch (error) {
         console.error('Membership check network error:', error);
         return false;
@@ -35,14 +45,23 @@ exports.getChannels = async (req, res) => {
 };
 
 exports.addChannel = async (req, res) => {
-    const { channel_id } = req.body;
+    let { channel_id, channel_url } = req.body;
+
+    // If no ID provided, try to extract username from URL
+    if (!channel_id && channel_url) {
+        const match = channel_url.match(/t\.me\/([\w\d_]+)/);
+        if (match && !channel_url.includes('+')) { // Public username
+            channel_id = '@' + match[1];
+        }
+    }
+
     if (!channel_id) {
-        return res.status(400).json({ error: 'Missing channel_id' });
+        return res.status(400).json({ error: 'Could not determine Channel ID. For private channels, you MUST provide the ID (-100...). For public channels, provide the Link.' });
     }
 
     const token = process.env.BOT_TOKEN;
     let channel_name = 'Unknown Channel';
-    let channel_url = '#';
+    // let channel_url = '#'; // Already declared above
 
     try {
         // 1. Fetch Channel Details from Telegram
