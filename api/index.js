@@ -27,12 +27,19 @@ app.get('/init-db', async (req, res) => {
     try {
         await pool.execute(`
             CREATE TABLE IF NOT EXISTS users (
-                id INT AUTO_INCREMENT PRIMARY KEY,
+                id INT AUTO_INCREMENT,
                 telegram_id VARCHAR(255) UNIQUE NOT NULL,
+                username VARCHAR(255),
+                first_name VARCHAR(255),
+                last_name VARCHAR(255),
+                photo_url TEXT,
+                auth_date BIGINT,
                 device_id VARCHAR(255),
                 ip_address VARCHAR(255),
                 name VARCHAR(255),
-                is_blocked BOOLEAN DEFAULT FALSE
+                is_blocked BOOLEAN DEFAULT FALSE,
+                role VARCHAR(50) DEFAULT 'user',
+                PRIMARY KEY (id)
             )
         `);
         res.send('Database initialized successfully (Schema: id PK, telegram_id UNIQUE VARCHAR)');
@@ -42,9 +49,32 @@ app.get('/init-db', async (req, res) => {
     }
 });
 
+// Endpoint to migrate the database (Add role column)
+app.get('/migrate', async (req, res) => {
+    try {
+        await pool.execute(`
+            ALTER TABLE users 
+            ADD COLUMN IF NOT EXISTS username VARCHAR(255),
+            ADD COLUMN IF NOT EXISTS first_name VARCHAR(255),
+            ADD COLUMN IF NOT EXISTS last_name VARCHAR(255),
+            ADD COLUMN IF NOT EXISTS photo_url TEXT,
+            ADD COLUMN IF NOT EXISTS auth_date BIGINT,
+            ADD COLUMN IF NOT EXISTS role VARCHAR(50) DEFAULT 'user'
+        `);
+        res.send('Migration successful: Added missing columns (username, photo_url, etc).');
+    } catch (error) {
+        if (error.code === 'ER_DUP_FIELDNAME') {
+            res.send('Migration skipped: Column "role" already exists.');
+        } else {
+            console.error('Migration error:', error);
+            res.status(500).send('Error migrating database: ' + error.message);
+        }
+    }
+});
+
 app.post('/secure-login', async (req, res) => {
     try {
-        const { telegram_id, device_id, name } = req.body;
+        const { telegram_id, device_id, name, username, first_name, last_name, photo_url, auth_date } = req.body;
         const telegramIdStr = String(telegram_id); // Ensure string for VARCHAR
         const deviceIdStr = String(device_id);     // Ensure string for VARCHAR
 
@@ -105,26 +135,31 @@ app.post('/secure-login', async (req, res) => {
                 });
             }
 
-            // Update IP address for logging purposes (optional, but good for tracking)
-            if (user.ip_address !== ip_address) {
-                await pool.execute(
-                    'UPDATE users SET ip_address = ? WHERE telegram_id = ?',
-                    [ip_address, telegramIdStr]
-                );
-            }
+            // Update user details (IP, username, photo, etc.) to keep them fresh
+            await pool.execute(
+                `UPDATE users SET 
+                    ip_address = ?, 
+                    username = ?, 
+                    first_name = ?, 
+                    last_name = ?, 
+                    photo_url = ?, 
+                    auth_date = ? 
+                 WHERE telegram_id = ?`,
+                [ip_address, username || null, first_name || null, last_name || null, photo_url || null, auth_date || null, telegramIdStr]
+            );
 
             // All good, welcome back
-            return res.json({ blocked: false });
+            return res.json({ blocked: false, role: user.role || 'user' });
 
         } else {
             // 4. New User: Register and Lock to this Device/IP
             await pool.execute(
-                `INSERT INTO users (telegram_id, device_id, ip_address, name) 
-                 VALUES (?, ?, ?, ?)`,
-                [telegramIdStr, deviceIdStr, ip_address, name]
+                `INSERT INTO users (telegram_id, device_id, ip_address, name, username, first_name, last_name, photo_url, auth_date, role) 
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'user')`,
+                [telegramIdStr, deviceIdStr, ip_address, name, username || null, first_name || null, last_name || null, photo_url || null, auth_date || null]
             );
 
-            return res.json({ blocked: false });
+            return res.json({ blocked: false, role: 'user' });
         }
 
     } catch (error) {
