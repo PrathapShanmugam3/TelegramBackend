@@ -8,18 +8,29 @@ async function checkTelegramMembership(userId, channelId) {
         return false;
     }
     try {
-        // Auto-fix private channel IDs (missing -100 prefix)
         let targetId = channelId;
+        // Auto-fix private channel IDs (missing -100 prefix)
+        let addedPrefix = false;
         if (!String(channelId).startsWith('-') && !String(channelId).startsWith('@')) {
             targetId = '-100' + channelId;
+            addedPrefix = true;
         }
 
         const url = `https://api.telegram.org/bot${token}/getChatMember?chat_id=${targetId}&user_id=${userId}`;
         console.log(`Checking Membership URL: ${url.replace(token, 'HIDDEN_TOKEN')}`);
 
-        const response = await fetch(url);
-        const data = await response.json();
+        let response = await fetch(url);
+        let data = await response.json();
         console.log(`Telegram API Response for ${targetId}:`, JSON.stringify(data));
+
+        // Retry without prefix if failed and we added one
+        if (!data.ok && addedPrefix) {
+            console.log(`Retry: Checking original ID ${channelId} without prefix...`);
+            const retryUrl = `https://api.telegram.org/bot${token}/getChatMember?chat_id=${channelId}&user_id=${userId}`;
+            response = await fetch(retryUrl);
+            data = await response.json();
+            console.log(`Retry Response for ${channelId}:`, JSON.stringify(data));
+        }
 
         if (!data.ok) {
             console.error(`Telegram API Error for ${channelId}:`, data.description);
@@ -48,50 +59,19 @@ exports.getChannels = async (req, res) => {
 };
 
 exports.addChannel = async (req, res) => {
-    let { channel_id, channel_url } = req.body;
+    let { channel_name, channel_url } = req.body;
 
-    // If no ID provided, try to extract username from URL
-    if (!channel_id && channel_url) {
-        const match = channel_url.match(/t\.me\/([\w\d_]+)/);
-        if (match && !channel_url.includes('+')) { // Public username
-            channel_id = '@' + match[1];
-        }
+    if (!channel_name || !channel_url) {
+        return res.status(400).json({ error: 'Missing channel_name or channel_url' });
     }
-
-    if (!channel_id) {
-        return res.status(400).json({ error: 'Could not determine Channel ID. For private channels, you MUST provide the ID (-100...). For public channels, provide the Link.' });
-    }
-
-    const token = process.env.BOT_TOKEN;
-    let channel_name = 'Unknown Channel';
-    // Use provided URL or default to #
-    if (!channel_url) channel_url = '#';
 
     try {
-        // 1. Fetch Channel Details from Telegram
-        const url = `https://api.telegram.org/bot${token}/getChat?chat_id=${channel_id}`;
-        const response = await fetch(url);
-        const data = await response.json();
-
-        if (data.ok) {
-            const chat = data.result;
-            channel_name = chat.title || 'Unknown';
-            if (chat.username) {
-                channel_url = `https://t.me/${chat.username}`;
-            } else if (chat.invite_link) {
-                channel_url = chat.invite_link;
-            }
-        } else {
-            console.warn(`Could not fetch details for ${channel_id}: ${data.description}`);
-            // Proceed anyway, maybe user knows it's correct
-        }
-
-        // 2. Insert into DB
+        // Insert into DB (No channel_id column)
         await pool.execute(
-            'INSERT INTO channels (channel_id, channel_name, channel_url) VALUES (?, ?, ?)',
-            [channel_id, channel_name, channel_url]
+            'INSERT INTO channels (channel_name, channel_url) VALUES (?, ?)',
+            [channel_name, channel_url]
         );
-        res.json({ success: true, channel: { channel_id, channel_name, channel_url } });
+        res.json({ success: true, channel: { channel_name, channel_url } });
 
     } catch (error) {
         console.error('Add Channel Error:', error);
@@ -123,9 +103,28 @@ exports.verifyChannels = async (req, res) => {
         const missing_channels = [];
 
         for (const channel of channels) {
-            console.log(`Verifying User ${telegram_id} in Channel ${channel.channel_id}...`);
-            const isMember = await checkTelegramMembership(telegram_id, channel.channel_id);
-            console.log(`Result for ${channel.channel_id}: ${isMember}`);
+            // Extract ID/Username from URL
+            let targetId = null;
+            const url = channel.channel_url;
+
+            // Case 1: Public Username (t.me/username)
+            const match = url.match(/t\.me\/([\w\d_]+)/);
+            if (match && !url.includes('+')) {
+                targetId = '@' + match[1];
+            }
+            // Case 2: Private Invite Link (Cannot verify without ID)
+            else {
+                console.warn(`Cannot verify private link without ID: ${url}`);
+                // We can't verify, so we assume they joined? Or fail?
+                // Safest is to fail (require join), but we can't check.
+                // Let's mark as missing so they see the link.
+                missing_channels.push(channel);
+                continue;
+            }
+
+            console.log(`Verifying User ${telegram_id} in Channel ${targetId}...`);
+            const isMember = await checkTelegramMembership(telegram_id, targetId);
+            console.log(`Result for ${targetId}: ${isMember}`);
 
             if (!isMember) {
                 missing_channels.push(channel);
