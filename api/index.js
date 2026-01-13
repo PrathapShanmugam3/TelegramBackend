@@ -46,33 +46,33 @@ app.post('/secure-login', async (req, res) => {
     try {
         const { telegram_id, device_id, name } = req.body;
         const telegramIdStr = String(telegram_id); // Ensure string for VARCHAR
+        const deviceIdStr = String(device_id);     // Ensure string for VARCHAR
 
         if (!telegram_id || !device_id) {
             return res.status(400).json({ error: 'Missing telegram_id or device_id' });
         }
 
         // 0. Device Ownership Check: Ensure this device isn't owned by someone else
-        const [deviceOwners] = await pool.execute(
-            'SELECT telegram_id, name FROM users WHERE device_id = ? ORDER BY id ASC LIMIT 1',
-            [device_id]
+        // Check if any user *other than the current one* is linked to this device
+        const [conflictingOwners] = await pool.execute(
+            'SELECT telegram_id, name FROM users WHERE device_id = ? AND telegram_id != ? LIMIT 1',
+            [deviceIdStr, telegramIdStr]
         );
 
-        if (deviceOwners.length > 0) {
-            const owner = deviceOwners[0];
-            if (owner.telegram_id !== telegramIdStr) {
-                console.log(`Device ${device_id} is owned by ${owner.name} (${owner.telegram_id}). Login denied for ${telegramIdStr}.`);
-                return res.json({
-                    blocked: true,
-                    reason: `This device is already linked to account "${owner.name}". Multiple accounts per device are not allowed.`
-                });
-            }
+        if (conflictingOwners.length > 0) {
+            const owner = conflictingOwners[0];
+            console.log(`Device ${deviceIdStr} is owned by ${owner.name} (${owner.telegram_id}). Login denied for ${telegramIdStr}.`);
+            return res.json({
+                blocked: true,
+                reason: `This device is already linked to account "${owner.name}". Multiple accounts per device are not allowed.`
+            });
         }
 
         // Get real IP
         const ipHeader = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '';
         const ip_address = Array.isArray(ipHeader) ? ipHeader[0] : ipHeader.split(',')[0].trim();
 
-        console.log(`Login attempt: TG=${telegramIdStr}, Device=${device_id}, IP=${ip_address}`);
+        console.log(`Login attempt: TG=${telegramIdStr}, Device=${deviceIdStr}, IP=${ip_address}`);
 
         // 1. Check if user exists
         const [users] = await pool.execute(
@@ -90,8 +90,8 @@ app.post('/secure-login', async (req, res) => {
 
             // 3. Strict Check: Must match registered Device ID
             // Note: IP check removed as per request to avoid blocking on network changes
-            if (user.device_id !== device_id) {
-                console.log(`Mismatch detected! Registered: [${user.device_id}] vs New: [${device_id}]`);
+            if (user.device_id !== deviceIdStr) {
+                console.log(`Mismatch detected! Registered: [${user.device_id}] vs New: [${deviceIdStr}]`);
 
                 // Block the user immediately
                 await pool.execute(
@@ -121,7 +121,7 @@ app.post('/secure-login', async (req, res) => {
             await pool.execute(
                 `INSERT INTO users (telegram_id, device_id, ip_address, name) 
                  VALUES (?, ?, ?, ?)`,
-                [telegramIdStr, device_id, ip_address, name]
+                [telegramIdStr, deviceIdStr, ip_address, name]
             );
 
             return res.json({ blocked: false });
@@ -129,7 +129,7 @@ app.post('/secure-login', async (req, res) => {
 
     } catch (error) {
         console.error('Error in secure-login:', error);
-        res.status(500).json({ error: 'Internal Server Error' });
+        res.status(500).json({ error: 'Internal Server Error', details: error.message });
     }
 });
 
