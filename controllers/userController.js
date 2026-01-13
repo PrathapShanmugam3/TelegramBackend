@@ -3,14 +3,7 @@ const pool = require('../config/db');
 exports.initDb = async (req, res) => {
     try {
         await pool.query('SELECT 1');
-        // Create Allowed Origins Table
-        await pool.execute(`
-            CREATE TABLE IF NOT EXISTS allowed_origins (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                origin_url VARCHAR(255) NOT NULL UNIQUE
-            )
-        `);
-        res.send('Database connection successful. Please create "users", "channels" tables manually. "allowed_origins" table created automatically.');
+        res.send('Database connection successful. Please create "users", "channels", and "allowed_origins" tables manually using the provided DDL.');
     } catch (error) {
         console.error('DB Connection error:', error);
         res.status(500).send('Error connecting to database: ' + error.message);
