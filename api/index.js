@@ -22,72 +22,14 @@ app.get('/', (req, res) => {
     res.send('Triple-Lock Security Backend is running (MySQL)');
 });
 
-// Endpoint to initialize or update the database table
+// Endpoint to check DB connection (Table creation is manual)
 app.get('/init-db', async (req, res) => {
     try {
-        // 1. Create Table if it doesn't exist
-        await pool.execute(`
-            CREATE TABLE IF NOT EXISTS users (
-                id INT AUTO_INCREMENT,
-                telegram_id VARCHAR(255) UNIQUE NOT NULL,
-                username VARCHAR(255),
-                first_name VARCHAR(255),
-                last_name VARCHAR(255),
-                photo_url TEXT,
-                auth_date BIGINT,
-                device_id VARCHAR(255),
-                ip_address VARCHAR(255),
-                name VARCHAR(255),
-                is_blocked BOOLEAN DEFAULT FALSE,
-                role VARCHAR(50) DEFAULT 'user',
-                PRIMARY KEY (id)
-            )
-        `);
-
-        // 2. Run Alter commands to ensure columns exist (for existing tables)
-        // This acts as an auto-migration for existing tables
-        await pool.execute(`
-            ALTER TABLE users 
-            ADD COLUMN IF NOT EXISTS username VARCHAR(255),
-            ADD COLUMN IF NOT EXISTS first_name VARCHAR(255),
-            ADD COLUMN IF NOT EXISTS last_name VARCHAR(255),
-            ADD COLUMN IF NOT EXISTS photo_url TEXT,
-            ADD COLUMN IF NOT EXISTS auth_date BIGINT,
-            ADD COLUMN IF NOT EXISTS role VARCHAR(50) DEFAULT 'user'
-        `);
-
-        res.send('Database initialized & updated successfully (Schema: id PK, telegram_id UNIQUE, + all user fields)');
+        await pool.query('SELECT 1');
+        res.send('Database connection successful. Please create the "users" table manually using the provided DDL.');
     } catch (error) {
-        // Ignore "Duplicate column" errors if they happen during ALTER
-        if (error.code === 'ER_DUP_FIELDNAME') {
-            res.send('Database initialized successfully (Columns already existed).');
-        } else {
-            console.error('Init DB error:', error);
-            res.status(500).send('Error initializing database: ' + error.message);
-        }
-    }
-});
-
-// Endpoint to migrate the database (Add role column)
-app.get('/migrate', async (req, res) => {
-    try {
-        await pool.execute(`
-            ALTER TABLE users 
-            ADD COLUMN IF NOT EXISTS username VARCHAR(255),
-            ADD COLUMN IF NOT EXISTS first_name VARCHAR(255),
-            ADD COLUMN IF NOT EXISTS last_name VARCHAR(255),
-            ADD COLUMN IF NOT EXISTS photo_url TEXT,
-            ADD COLUMN IF NOT EXISTS auth_date BIGINT,
-            ADD COLUMN IF NOT EXISTS role VARCHAR(50) DEFAULT 'user'
-        `);
-        res.send('Migration successful: Added missing columns (username, photo_url, etc).');
-    } catch (error) {
-        if (error.code === 'ER_DUP_FIELDNAME') {
-            res.send('Migration skipped: Column "role" already exists.');
-        } else {
-            console.error('Migration error:', error);
-            res.status(500).send('Error migrating database: ' + error.message);
-        }
+        console.error('DB Connection error:', error);
+        res.status(500).send('Error connecting to database: ' + error.message);
     }
 });
 
