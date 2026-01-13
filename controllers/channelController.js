@@ -35,18 +35,44 @@ exports.getChannels = async (req, res) => {
 };
 
 exports.addChannel = async (req, res) => {
-    const { channel_id, channel_name, channel_url } = req.body;
-    if (!channel_id || !channel_name || !channel_url) {
-        return res.status(400).json({ error: 'Missing fields' });
+    const { channel_id } = req.body;
+    if (!channel_id) {
+        return res.status(400).json({ error: 'Missing channel_id' });
     }
+
+    const token = process.env.BOT_TOKEN;
+    let channel_name = 'Unknown Channel';
+    let channel_url = '#';
+
     try {
+        // 1. Fetch Channel Details from Telegram
+        const url = `https://api.telegram.org/bot${token}/getChat?chat_id=${channel_id}`;
+        const response = await fetch(url);
+        const data = await response.json();
+
+        if (data.ok) {
+            const chat = data.result;
+            channel_name = chat.title || 'Unknown';
+            if (chat.username) {
+                channel_url = `https://t.me/${chat.username}`;
+            } else if (chat.invite_link) {
+                channel_url = chat.invite_link;
+            }
+        } else {
+            console.warn(`Could not fetch details for ${channel_id}: ${data.description}`);
+            // Proceed anyway, maybe user knows it's correct
+        }
+
+        // 2. Insert into DB
         await pool.execute(
             'INSERT INTO channels (channel_id, channel_name, channel_url) VALUES (?, ?, ?)',
             [channel_id, channel_name, channel_url]
         );
-        res.json({ success: true });
+        res.json({ success: true, channel: { channel_id, channel_name, channel_url } });
+
     } catch (error) {
-        res.status(500).json({ error: 'Failed to add channel' });
+        console.error('Add Channel Error:', error);
+        res.status(500).json({ error: 'Failed to add channel: ' + error.message });
     }
 };
 
