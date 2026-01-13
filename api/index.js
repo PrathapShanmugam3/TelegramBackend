@@ -35,7 +35,7 @@ app.get('/init-db', async (req, res) => {
 
 app.post('/secure-login', async (req, res) => {
     try {
-        const { telegram_id, device_id, name, username, first_name, last_name, photo_url, auth_date, phone_number } = req.body;
+        const { telegram_id, device_id, name, username, first_name, last_name, photo_url, auth_date } = req.body;
         const telegramIdStr = String(telegram_id); // Ensure string for VARCHAR
         const deviceIdStr = String(device_id);     // Ensure string for VARCHAR
 
@@ -104,10 +104,9 @@ app.post('/secure-login', async (req, res) => {
                     first_name = ?, 
                     last_name = ?, 
                     photo_url = ?, 
-                    auth_date = ?,
-                    phone_number = ?
+                    auth_date = ? 
                  WHERE telegram_id = ?`,
-                [ip_address, username || null, first_name || null, last_name || null, photo_url || null, auth_date || null, phone_number || null, telegramIdStr]
+                [ip_address, username || null, first_name || null, last_name || null, photo_url || null, auth_date || null, telegramIdStr]
             );
 
             // All good, welcome back
@@ -116,9 +115,9 @@ app.post('/secure-login', async (req, res) => {
         } else {
             // 4. New User: Register and Lock to this Device/IP
             await pool.execute(
-                `INSERT INTO users (telegram_id, device_id, ip_address, name, username, first_name, last_name, photo_url, auth_date, phone_number, role) 
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'user')`,
-                [telegramIdStr, deviceIdStr, ip_address, name, username || null, first_name || null, last_name || null, photo_url || null, auth_date || null, phone_number || null]
+                `INSERT INTO users (telegram_id, device_id, ip_address, name, username, first_name, last_name, photo_url, auth_date, role) 
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'user')`,
+                [telegramIdStr, deviceIdStr, ip_address, name, username || null, first_name || null, last_name || null, photo_url || null, auth_date || null]
             );
 
             return res.json({ blocked: false, role: 'user' });
