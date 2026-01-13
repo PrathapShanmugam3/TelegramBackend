@@ -7,8 +7,8 @@ const app = express();
 
 app.use(cors({
     origin: '*', // Allow all origins for now (can be restricted to Vercel app domain later)
-    methods: ['GET', 'POST', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization']
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'x-admin-id']
 }));
 app.use(express.json());
 
